@@ -4,6 +4,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
 
+  // HTMLエスケープ関数（簡易）
+  function escapeHtml(str) {
+    if (typeof str !== "string") return "";
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   // Function to fetch activities from API
   async function fetchActivities() {
     try {
@@ -21,10 +32,19 @@ document.addEventListener("DOMContentLoaded", () => {
         const spotsLeft = details.max_participants - details.participants.length;
 
         activityCard.innerHTML = `
-          <h4>${name}</h4>
-          <p>${details.description}</p>
-          <p><strong>Schedule:</strong> ${details.schedule}</p>
+          <h4>${escapeHtml(name)}</h4>
+          <p>${escapeHtml(details.description || "")}</p>
+          <p><strong>Schedule:</strong> ${escapeHtml(details.schedule || "")}</p>
           <p><strong>Availability:</strong> ${spotsLeft} spots left</p>
+          <div class="participants">
+            <h5>Participants</h5>
+            ${details.participants && details.participants.length
+              ? `<ul class="participants-list" data-activity="${escapeHtml(name)}">
+                  ${details.participants.map(p => `<li><span class="participant-email">${escapeHtml(p)}</span><button class="remove-participant" title="Remove participant">✕</button></li>`).join("")}
+                </ul>`
+              : `<p class="no-participants">No participants yet</p>`
+            }
+          </div>
         `;
 
         activitiesList.appendChild(activityCard);
@@ -40,6 +60,51 @@ document.addEventListener("DOMContentLoaded", () => {
       console.error("Error fetching activities:", error);
     }
   }
+
+  // Delegate click for remove participant buttons
+  activitiesList.addEventListener('click', async (event) => {
+    if (!event.target.classList.contains('remove-participant')) return;
+
+    const btn = event.target;
+    const li = btn.closest('li');
+    if (!li) return;
+
+    const email = li.querySelector('.participant-email').textContent;
+    const participantsList = btn.closest('.participants-list');
+    const activity = participantsList ? participantsList.dataset.activity : null;
+
+    if (!activity) {
+      console.error('Could not determine activity for removal');
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/activities/${encodeURIComponent(activity)}/unregister?email=${encodeURIComponent(email)}`,
+        { method: 'POST' }
+      );
+
+      const result = await response.json();
+
+      if (response.ok) {
+        messageDiv.textContent = result.message;
+        messageDiv.className = 'success';
+        messageDiv.classList.remove('hidden');
+        // Refresh activities to reflect change
+        fetchActivities();
+        setTimeout(() => messageDiv.classList.add('hidden'), 5000);
+      } else {
+        messageDiv.textContent = result.detail || 'Failed to remove participant';
+        messageDiv.className = 'error';
+        messageDiv.classList.remove('hidden');
+      }
+    } catch (err) {
+      messageDiv.textContent = 'Failed to remove participant.';
+      messageDiv.className = 'error';
+      messageDiv.classList.remove('hidden');
+      console.error('Error removing participant:', err);
+    }
+  });
 
   // Handle form submission
   signupForm.addEventListener("submit", async (event) => {
